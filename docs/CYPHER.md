@@ -125,3 +125,12 @@ Nodes: `Stack`, `Finding`, `Pattern`, `Fix`, `Rule`. Edges: `(Stack)-[:HAS]->(Fi
 | `tenant_owner` | Who owns this graph? Every API route checks this before reading a stack |
 | `tenant_owners` | All graphs and owners, to list one tenant's stacks |
 | `tenant_release` | Forget ownership when a graph is deleted |
+
+### Tribunal queries
+
+| Query | What it answers |
+|---|---|
+| `session_event` | One Guard event (tool, decision, status, reasons) for the Tribunal to read |
+| `precedent_record_ruling` | Store an advisory ruling `(Ruling)-[:CITES]->(Ruling)`. Always `advisory: true` |
+| `precedent_rulings_for_tool` | Earlier rulings about the same tool, which the judge cites |
+| `precedent_ruling_chain` | A ruling and the rulings it cites |

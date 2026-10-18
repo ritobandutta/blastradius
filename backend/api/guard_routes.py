@@ -7,6 +7,7 @@ from backend.api.deps import tenant_dep
 from backend.graph import tenancy
 from backend.graph.client import stack_graph_name
 from backend.guard import approvals, decide, taint
+from backend.precedent import tribunal as tribunal_mod
 
 router = APIRouter(prefix="/guard", tags=["guard"])
 
@@ -62,6 +63,21 @@ def resolve(session_id: str, seq: int, body: ResolveRequest, tenant: str = Depen
         return approvals.resolve(session_id, seq, body.approve)
     except approvals.ApprovalError as e:
         raise HTTPException(409, str(e)) from e
+
+
+@router.post("/sessions/{session_id}/events/{seq}/tribunal")
+def tribunal(session_id: str, seq: int, tenant: str = Depends(tenant_dep)):
+    """Advisory hearing for a pending ESCALATE. Never changes the decision."""
+    _own_session(session_id, tenant)
+    try:
+        return tribunal_mod.hear(session_id, seq)
+    except tribunal_mod.NotEscalated as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@router.get("/rulings/{ruling_id}")
+def ruling(ruling_id: str):
+    return tribunal_mod.chain(ruling_id)
 
 
 @router.get("/sessions")
