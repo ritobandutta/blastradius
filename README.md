@@ -11,7 +11,7 @@ Built for the WeMakeDevs x FalkorDB **Graph Hacks: Context for AI Agents** hacka
 |---|---|
 | What it does | Maps an agent's tools, MCP servers, data sources, secrets and permissions into a FalkorDB graph, finds every path from untrusted input to a dangerous sink, enforces policy at run time, and proves a fix works by re-running the same query and getting zero paths. |
 | Where FalkorDB matters | Every path finding, every Guard decision and every precedent lookup is a Cypher query. There is no in-memory copy of any graph. Stop FalkorDB and the Guard denies everything (tested). |
-| Live deployment | **Not deployed yet.** `render.yaml` and the hardening are ready; see "Deploying" below. Run it locally with one command in the meantime. |
+| Live deployment | **https://blastradius-uuaz.onrender.com** (Render free tier + FalkorDB Cloud free tier). It sleeps when idle, so the first load can take about a minute. See "Deploying" below. |
 | Demo script | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) (under 3 minutes) |
 | Design explained | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Every query | [docs/CYPHER.md](docs/CYPHER.md) |
@@ -187,8 +187,10 @@ use a password that is used nowhere else. It also has no backups, which is why t
   sensible, and the Tribunal left the call pending). Free models rate-limit and come and go: in
   testing several answered 429 and one auto-router served an unusable model, so the default was
   chosen by trial. Failures are reported as MOCK MODE with the error, never hidden.
-- **No live deployment yet**, and when deployed the free tiers sleep when idle, the database is
-  unencrypted in transit, and queries cross a network instead of a loopback.
+- **The live deployment runs on free tiers:** they sleep when idle, FalkorDB Cloud's free tier has
+  no TLS (the data is synthetic and the password is used nowhere else), and queries cross a network
+  instead of a loopback. Measured on the deployed app, one Guard decision took about 125 to 155 ms
+  and loading a stack about 1 s; that is the app's own timer, not an end-to-end browser figure.
 
 ## AI assistance disclosure
 
