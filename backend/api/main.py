@@ -9,11 +9,12 @@ from backend.llm import base as llm
 from backend.parser import annotate
 from backend.parser.stack_spec import parse_any
 
-from backend.api import guard_routes  # noqa: E402
+from backend.api import guard_routes, redteam_routes  # noqa: E402
 
 app = FastAPI(title="BlastRadius", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(guard_routes.router)
+app.include_router(redteam_routes.router)
 
 
 @app.exception_handler(GraphUnavailable)
