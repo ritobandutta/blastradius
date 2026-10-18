@@ -1,0 +1,6 @@
+{"id": "seed-devops-assistant", "name": "Synthetic devops assistant (seed corpus)",
+ "agent": {"id": "devops-agent"},
+ "servers": [
+  {"id": "chat", "tools": [{"name": "read_slack"}, {"name": "slack_post"}]},
+  {"id": "ops", "tools": [{"name": "run_shell"}]}
+ ]}

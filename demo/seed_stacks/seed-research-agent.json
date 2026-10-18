@@ -1,0 +1,7 @@
+{"id": "seed-research-agent", "name": "Synthetic research agent (seed corpus)",
+ "agent": {"id": "research-agent"},
+ "servers": [
+  {"id": "web", "tools": [{"name": "fetch_url"}]},
+  {"id": "net", "tools": [{"name": "http_post"}]},
+  {"id": "vault", "tools": [{"name": "get_secret"}]}
+ ]}

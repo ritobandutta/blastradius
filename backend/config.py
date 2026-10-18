@@ -29,5 +29,7 @@ LLM_MODE = os.getenv("BLASTRADIUS_LLM", "auto")
 
 GUARD_LOCKDOWN_THRESHOLD = int(os.getenv("GUARD_LOCKDOWN_THRESHOLD", "40"))
 
-PRECEDENT_GRAPH = "precedent"
+# The shared graph of findings, patterns, fixes and learned rules. Overridable so tests never
+# touch the real one.
+PRECEDENT_GRAPH = os.getenv("BLASTRADIUS_PRECEDENT_GRAPH", "precedent")
 MAX_PATH_DEPTH = 6

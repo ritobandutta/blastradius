@@ -72,14 +72,15 @@ def run_trial(stack_id: str, tool_names: set[str], path: AttackPath, variant: Va
                  sink_calls, ep.steps, ep.blocked_by)
 
 
-def top_paths(stack_id: str, n: int) -> list[AttackPath]:
-    """One representative path per (act tool, sink), highest score first, so the red team
-    exercises every distinct way out instead of the same exit repeatedly."""
+def top_paths(stack_id: str, n: int, distinct_exits: bool = True) -> list[AttackPath]:
+    """Highest-scoring paths first. By default one representative per (act tool, sink), so the
+    red team exercises every distinct way out instead of the same exit repeatedly. With
+    distinct_exits=False every path is returned (used to confirm each finding individually)."""
     seen: set[tuple[str, str]] = set()
     picked: list[AttackPath] = []
     for p in analysis.paths_to_sinks(stack_id).paths:
         key = (p.act_tool, p.sink)
-        if key in seen:
+        if distinct_exits and key in seen:
             continue
         seen.add(key)
         picked.append(p)
@@ -89,10 +90,10 @@ def top_paths(stack_id: str, n: int) -> list[AttackPath]:
 
 
 def run_redteam(stack_id: str, top_n: int = 4, use_llm: bool = False,
-                defences: tuple[str, ...] = DEFENCES) -> dict:
+                defences: tuple[str, ...] = DEFENCES, distinct_exits: bool = True) -> dict:
     t0 = time.perf_counter()
     tool_names = {t.name for s in stored_spec(stack_id).servers for t in s.tools}
-    paths = top_paths(stack_id, top_n)
+    paths = top_paths(stack_id, top_n, distinct_exits)
     trials: list[Trial] = []
     for path in paths:
         # One canary per path, shared by every variant and defence, and baked into the attack

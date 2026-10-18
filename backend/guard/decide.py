@@ -12,6 +12,8 @@ Rules, in order (first match wins):
   1. session in Lockdown and the tool is not read-only           -> DENY
   2. tainted context, tool reaches a sink, agent is toxic        -> DENY   (structural, no text matching)
   3. secret-like string in the args of a tool that reaches exfil -> DENY
+  3b. tainted context + tool reaches a sink + an ARMED learned    -> DENY   (precedent_rules_matching;
+      rule matches (ingest tool already ran, this is the act tool)      the critic armed it from confirmed exploits)
   4. tainted context, tool reaches a sink, agent not toxic       -> ESCALATE
   5. tool is gated (config says a human must confirm)            -> ESCALATE
   6. otherwise                                                   -> ALLOW
@@ -23,8 +25,10 @@ import time
 from dataclasses import dataclass, field
 
 from backend import config
+from backend.graph import tenancy
 from backend.graph.client import GraphUnavailable, Graph, stack_graph_name
 from backend.guard import taint, trust
+from backend.precedent import rules as precedent_rules
 
 ALLOW, ESCALATE, DENY = "ALLOW", "ESCALATE", "DENY"
 
@@ -64,18 +68,23 @@ def fail_closed(session: str, stack: str, tool: str, why: str) -> Decision:
                     fail_closed=True)
 
 
-def check(session_id: str, stack_id: str, tool: str, args: dict | None = None) -> Decision:
+def check(session_id: str, stack_id: str, tool: str, args: dict | None = None,
+          tenant: str = "public") -> Decision:
     t0 = time.perf_counter()
     try:
-        d = _check(session_id, stack_id, tool, args)
+        d = _check(session_id, stack_id, tool, args, tenant)
     except GraphUnavailable as e:
         d = fail_closed(session_id, stack_id, tool, f"FalkorDB unavailable ({e})")
     d.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
     return d
 
 
-def _check(session_id: str, stack_id: str, tool: str, args: dict | None) -> Decision:
+def _check(session_id: str, stack_id: str, tool: str, args: dict | None,
+           tenant: str = "public") -> Decision:
     now = time.time()
+    if tenancy.owner_of(stack_graph_name(stack_id)) != tenant:
+        # A stack owned by someone else looks exactly like a stack that does not exist.
+        return fail_closed(session_id, stack_id, tool, f"unknown stack {stack_id!r}")
     stack = Graph(stack_graph_name(stack_id))
     if not stack.exists():
         return fail_closed(session_id, stack_id, tool, f"unknown stack {stack_id!r}")
@@ -140,6 +149,20 @@ def _check(session_id: str, stack_id: str, tool: str, args: dict | None) -> Deci
                 f"{', '.join(s['sink'] for s in sinks)}; not toxic, so a human decides"
             )
 
+    learned: list[dict] = []
+    if decision != DENY and needs_toxic:
+        # Procedural memory: rules learned from confirmed exploits on earlier stacks. Only
+        # rules the critic armed are ever returned. A match can only tighten the decision.
+        learned = precedent_rules.armed_rules_for(
+            tenant, tool, sorted({e["tool"] for e in context}))
+        if learned:
+            decision = DENY
+            reasons.append("learned rule: " + ", ".join(r["rule"] for r in learned) +
+                           " (armed by the critic from confirmed exploits)")
+            total += trust.PENALTY["blocked"]
+            penalties.append(trust.Penalty("blocked", trust.PENALTY["blocked"],
+                                           "learned rule blocked a tainted call"))
+
     if total:
         pen = taint.penalize(sg, session_id, total, config.GUARD_LOCKDOWN_THRESHOLD)
         score, lockdown = pen["score"], bool(pen["lockdown"])
@@ -165,12 +188,12 @@ def _check(session_id: str, stack_id: str, tool: str, args: dict | None) -> Deci
     return _finish(sg, session_id, stack_id, tool, args, now, decision, reasons,
                    tainted_call=tainted_call, context=context, facts=facts,
                    penalties=[p.to_dict() for p in penalties], dlp=dlp_kinds, score=score,
-                   lockdown=lockdown, seq=seq, ahash=ahash, toxic=toxic_row)
+                   lockdown=lockdown, seq=seq, ahash=ahash, toxic=toxic_row, learned=learned)
 
 
 def _finish(sg, session_id, stack_id, tool, args, now, decision, reasons, *, tainted_call,
             context, facts, penalties, dlp, score, lockdown, seq=None, ahash=None,
-            toxic=None) -> Decision:
+            toxic=None, learned=None) -> Decision:
     ahash = ahash or trust.args_hash(args)
     if seq is None:
         seq = taint.next_seq(sg, session_id)
@@ -189,7 +212,8 @@ def _finish(sg, session_id, stack_id, tool, args, now, decision, reasons, *, tai
                            ("side_effect", "agent", "gated", "untrusted_sources", "sinks")},
             "tainted_events": context,
             "toxic_combination": toxic,
+            "learned_rules": learned or [],
             "queries": ["guard_tool_facts", "session_taint", "toxic_combinations",
-                        "session_drift"],
+                        "session_drift", "precedent_rules_matching"],
         },
     )

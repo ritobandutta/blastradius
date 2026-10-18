@@ -1,0 +1,6 @@
+{"id": "seed-helpdesk-bot", "name": "Synthetic helpdesk bot (seed corpus)",
+ "agent": {"id": "helpdesk-agent"},
+ "servers": [
+  {"id": "mail", "tools": [{"name": "read_email"}, {"name": "send_email"}]},
+  {"id": "data", "tools": [{"name": "db_query"}]}
+ ]}

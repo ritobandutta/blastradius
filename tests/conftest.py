@@ -31,6 +31,23 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_precedent_graph(monkeypatch):
+    """Every test gets its own precedent graph, so learned rules from one test (or from the
+    real demo data) can never change the Guard's decisions in another. Code reads
+    config.PRECEDENT_GRAPH at call time, so patching it here is enough."""
+    from backend import config
+
+    name = f"t{RUN}-precedent-{uuid.uuid4().hex[:6]}"
+    monkeypatch.setattr(config, "PRECEDENT_GRAPH", name)
+    _created.append(name)
+    yield name
+    try:
+        client.Graph(name).delete()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _cleanup():
     yield

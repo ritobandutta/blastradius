@@ -1,22 +1,18 @@
 """Red-team and comparison endpoints. Every number is computed by running the sandbox."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from backend.graph import schema
+from backend.api.deps import require_stack, tenant_dep
 from backend.llm import base as llm
 from backend.redteam import benign, compare, naive_filter, runner
 
 router = APIRouter(prefix="/stacks/{stack_id}/redteam", tags=["redteam"])
 
 
-def _require(stack_id: str) -> None:
-    if stack_id not in schema.stack_ids():
-        raise KeyError(f"unknown stack {stack_id!r}")
-
-
 @router.post("")
-def run(stack_id: str, top_n: int = 4, use_llm: bool = False):
+def run(stack_id: str, top_n: int = 4, use_llm: bool = False,
+        tenant: str = Depends(tenant_dep)):
     """Attack the toy agent along the top paths under three defences and compare them."""
-    _require(stack_id)
+    require_stack(stack_id, tenant)
     result = runner.run_redteam(stack_id, top_n=top_n, use_llm=use_llm)
     summary = compare.summarize(result["trials"])
     fp = benign.false_positive_report(stack_id)

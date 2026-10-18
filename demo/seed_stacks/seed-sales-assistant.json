@@ -1,0 +1,6 @@
+{"id": "seed-sales-assistant", "name": "Synthetic sales assistant (seed corpus)",
+ "agent": {"id": "sales-agent"},
+ "servers": [
+  {"id": "mail", "tools": [{"name": "read_email"}, {"name": "send_email"}]},
+  {"id": "crm", "tools": [{"name": "db_query"}, {"name": "read_file"}]}
+ ]}

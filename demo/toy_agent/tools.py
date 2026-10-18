@@ -17,6 +17,7 @@ BENIGN_PAGE = (
 )
 BENIGN_NOTES = "Deployment tips: tag releases, keep rollbacks one command away."
 BENIGN_EMAIL = "Hi, my order #4411 has not arrived yet. Thanks, Jane"
+BENIGN_CHAT = "Standup moved to 10:30 today. Deploy window opens after lunch."
 
 
 @dataclass
@@ -66,6 +67,10 @@ def _fetch_url(env, args, n):
     return "200 OK (simulated, no request was made)"
 
 
+def _read_slack(env, args, n):
+    return env.poisoned_results.get("read_slack", BENIGN_CHAT) if n == 0 else BENIGN_CHAT
+
+
 def _search_notes(env, args, n):
     return env.poisoned_results.get("search_notes", BENIGN_NOTES) if n == 0 else BENIGN_NOTES
 
@@ -94,6 +99,7 @@ def _write_file(env, args, n):
 _TOOLS = {
     "read_email": _read_email,
     "fetch_url": _fetch_url,
+    "read_slack": _read_slack,
     "search_notes": _search_notes,
     "read_file": _read_file,
     "db_query": _db_query,

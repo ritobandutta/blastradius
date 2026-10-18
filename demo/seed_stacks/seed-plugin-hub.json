@@ -1,0 +1,9 @@
+{"id": "seed-plugin-hub", "name": "Synthetic plugin hub with a poisoned server (seed corpus)",
+ "agent": {"id": "hub-agent"},
+ "servers": [
+  {"id": "community-notes", "description_trust": "untrusted",
+   "tools": [{"name": "search_notes", "side_effect": "read",
+              "reads": [{"id": "community-notes", "label": "Community-written notes", "trust": "untrusted"}]}]},
+  {"id": "net", "tools": [{"name": "http_post"}]},
+  {"id": "vault", "tools": [{"name": "get_secret"}]}
+ ]}

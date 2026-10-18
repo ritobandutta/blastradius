@@ -94,4 +94,34 @@ load the path subgraph into a throwaway graph `defense:<id>` and let FalkorDB co
 
 Proof of absence re-runs `paths_to_sinks` on the patched stack graph; there is no separate query.
 
-This list grows as later phases add precedent queries.
+### Precedent queries (shared graph `precedent`)
+
+Nodes: `Stack`, `Finding`, `Pattern`, `Fix`, `Rule`. Edges: `(Stack)-[:HAS]->(Finding)`,
+`(Finding)-[:INSTANCE_OF]->(Pattern)`, `(Finding)-[:FIXED_BY {held}]->(Fix)`,
+`(Rule)-[:DERIVED_FROM]->(Finding)`.
+
+| Query | What it answers |
+|---|---|
+| `precedent_upsert_stack` | Remember a scanned stack; close its old findings so a re-scan leaves nothing stale |
+| `precedent_upsert_patterns` | The named steering techniques, tagged with OWASP LLM Top 10 categories |
+| `precedent_upsert_findings` | One `Finding` per attack path, linked to its `Pattern`s. `combo` makes findings comparable across stacks |
+| `precedent_record_fix` | A `Fix` and the findings it severed. `held` is true only if the proof of absence found zero paths |
+| `precedent_citations` | **Two-hop traversal** `Stack -> Finding -> Pattern <- Finding <- Stack`, grouped per pattern, with the fixes that held |
+| `precedent_combo_history` | The same hop narrowed to the identical tool combination: "exploited in N earlier stacks, the fix that held was X" |
+| `precedent_stack_findings` | A stack's findings with patterns and fixes |
+| `precedent_upsert_rule` | A learned Guard rule, `(Rule)-[:DERIVED_FROM]->(Finding)`. Starts `proposed` |
+| `precedent_rule_status` | The critic's verdict (`armed` / `rejected`) stored on the rule |
+| `precedent_rules` | Every learned rule with the findings it came from |
+| `precedent_rules_matching` | Which rules fire for a call. **The Guard and the critic run this exact query**, so what the critic approves is what fires |
+| `precedent_patterns` | Pattern catalog with how often each was seen |
+| `precedent_stats` | Size of the shared memory |
+| `precedent_stack_exists` | Has this stack been scanned into the memory? |
+
+### Tenancy queries (graph `tenants`)
+
+| Query | What it answers |
+|---|---|
+| `tenant_set_owner` | `(Tenant)-[:OWNS]->(GraphRef)`: record who owns a stack graph |
+| `tenant_owner` | Who owns this graph? Every API route checks this before reading a stack |
+| `tenant_owners` | All graphs and owners, to list one tenant's stacks |
+| `tenant_release` | Forget ownership when a graph is deleted |
