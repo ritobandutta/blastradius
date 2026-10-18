@@ -11,7 +11,7 @@ Built for the WeMakeDevs x FalkorDB **Graph Hacks: Context for AI Agents** hacka
 |---|---|
 | What it does | Maps an agent's tools, MCP servers, data sources, secrets and permissions into a FalkorDB graph, finds every path from untrusted input to a dangerous sink, enforces policy at run time, and proves a fix works by re-running the same query and getting zero paths. |
 | Where FalkorDB matters | Every path finding, every Guard decision and every precedent lookup is a Cypher query. There is no in-memory copy of any graph. Stop FalkorDB and the Guard denies everything (tested). |
-| Live deployment | **Not deployed yet.** Run it locally with one command (below). |
+| Live deployment | **Not deployed yet.** `render.yaml` and the hardening are ready; see "Deploying" below. Run it locally with one command in the meantime. |
 | Demo script | [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) (under 3 minutes) |
 | Design explained | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Every query | [docs/CYPHER.md](docs/CYPHER.md) |
@@ -40,7 +40,7 @@ Development without Docker for the app:
 docker compose up -d falkordb
 uv sync && uv run uvicorn backend.api.main:app --port 8010
 cd frontend && npm install && npm run dev        # http://localhost:5173
-uv run pytest                                    # 153 tests, real FalkorDB
+uv run pytest                                    # 170 tests, real FalkorDB
 ```
 
 CLI:
@@ -130,17 +130,38 @@ From `scripts/bench.py` and the red team, on a laptop, with the real database. R
 | Measurement | Result |
 |---|---|
 | `paths_to_sinks` on the demo stack (8 paths) | 0.27 ms p50, 0.9 ms p95 server-side (200 runs); 0.62 ms p50 round trip |
-| One Guard decision (a blocked call) | 3.9 ms p50, 7.0 ms p95 (60 runs, sequential) |
-| 8 concurrent sessions | ~1,040 decisions/s, 6.7 ms p50, 11.3 ms p95; decisions identical across sessions |
-| 16 concurrent sessions | ~1,040 decisions/s, 14.5 ms p50, 24.8 ms p95; decisions identical across sessions |
+| One Guard decision (a blocked call) | 3.2 ms p50, 7.7 ms p95 (60 runs, sequential, local database) |
+| 8 concurrent sessions | ~1,050 decisions/s, 6.6 ms p50, 14.6 ms p95; decisions identical across sessions |
+| 16 concurrent sessions | ~1,200 decisions/s, 12.6 ms p50, 18.6 ms p95; decisions identical across sessions |
 | Attacks that complete with no defence | 20 of 20 |
 | Naive keyword/regex filter | stops 4 of 20 (only the "ignore previous instructions" variant) |
 | The Guard | stops 20 of 20 |
 | Guard false positives on 5 benign sessions | **1 of 5** (see limits) |
 | After the min-cut patch | 0 paths, and 0 of 20 attacks complete against the patched config alone |
 
-Throughput stops growing past 8 sessions; the figures above are from a single process, so they
-describe this setup, not a capacity claim.
+These are **local** numbers (database on the same machine). Against FalkorDB Cloud from a laptop
+the round trip was about 290 ms per query while the database itself spent 0.55 ms, so a hosted
+deployment is dominated by network distance. A Guard decision needs 7 to 9 queries; they were
+grouped so independent ones run in parallel (simulated 30 ms round trip: about 300 ms before,
+about 150 ms after). Figures come from one process and describe this setup, not a capacity claim.
+
+## Deploying
+
+The app runs as one container (`Dockerfile`) against any FalkorDB. For a public, unauthenticated
+demo set `PUBLIC_DEMO=true`, which:
+
+- forces **MOCK MODE** so visitors cannot spend API credits,
+- blocks the seed-reset and stack-delete routes, caps the number of stacks, and rate-limits
+  requests per client (tighter on the expensive routes),
+- deletes stacks and sessions older than an hour (the shared `precedent` graph is never touched),
+- seeds the precedent memory at startup and re-seeds if the database was wiped.
+
+This limits damage; it is **not authentication**. `render.yaml` describes a free Render web
+service; the database is FalkorDB Cloud's free tier, configured with `FALKORDB_HOST`,
+`FALKORDB_PORT`, `FALKORDB_USERNAME` and `FALKORDB_PASSWORD` as secrets. `/healthz` is liveness
+only; `/health` runs a real query and is what `keepalive.yml` pings so the free tiers do not idle out.
+FalkorDB Cloud's free tier has **no TLS**, so the password crosses the internet in plaintext;
+use a password that is used nowhere else. It also has no backups, which is why the app re-seeds.
 
 ## Honest limits
 
@@ -162,7 +183,8 @@ describe this setup, not a capacity claim.
 - **Live-LLM paths are lightly tested.** One live call was verified, but the live Tribunal,
   the LLM-written red-team variant and the annotation assist were exercised in mock mode and with a
   mocked failure, not against the live API end to end.
-- **No live deployment yet.**
+- **No live deployment yet**, and when deployed the free tiers sleep when idle, the database is
+  unencrypted in transit, and queries cross a network instead of a loopback.
 
 ## AI assistance disclosure
 
@@ -181,5 +203,5 @@ backend/   graph/ (client, schema, queries/*.cypher, analysis, tenancy)  parser/
            redteam/  defense/  precedent/  llm/  api/  cli.py  mcp_server.py
 demo/      toy_agent/ (simulated tools)  stacks/ (vulnerable, fixed, second_pattern)
            seed_stacks/  benign_sessions/
-frontend/  Vite + React + Cytoscape      tests/  153 tests      docs/  design + demo
+frontend/  Vite + React + Cytoscape      tests/  170 tests      docs/  design + demo
 ```

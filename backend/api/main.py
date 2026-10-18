@@ -1,5 +1,6 @@
 """FastAPI app. Routers are added per phase; this module wires them together."""
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -7,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import defense_routes, guard_routes, precedent_routes, redteam_routes
+from backend import config
+from backend.api import (defense_routes, guard_routes, precedent_routes, public_demo,
+                         redteam_routes)
 from backend.api.deps import require_stack, tenant_dep
 from backend.graph import analysis, client, schema, tenancy
 from backend.graph.client import GraphQueryError, GraphUnavailable, stack_graph_name
@@ -15,8 +18,21 @@ from backend.llm import base as llm
 from backend.parser import annotate
 from backend.parser.stack_spec import parse_any
 
-app = FastAPI(title="BlastRadius", version="0.1.0")
+STATE: dict = {}
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Janitor + keep-alive + self-healing seed. Both flags are off in local development, so
+    # nothing starts there.
+    if config.PUBLIC_DEMO or config.AUTO_SEED:
+        public_demo.start_background(STATE)
+    yield
+
+
+app = FastAPI(title="BlastRadius", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.middleware("http")(public_demo.guard_middleware)
 app.include_router(guard_routes.router)
 app.include_router(redteam_routes.router)
 app.include_router(defense_routes.router)
@@ -44,14 +60,29 @@ async def _invalid(_: Request, e: ValueError):
     return JSONResponse(status_code=422, content={"error": "invalid", "detail": str(e)})
 
 
+@app.exception_handler(public_demo.CapacityError)
+async def _full(_: Request, e: public_demo.CapacityError):
+    return JSONResponse(status_code=503, headers={"Retry-After": "120"},
+                        content={"error": "demo_full", "detail": str(e)})
+
+
 @app.exception_handler(tenancy.TenantError)
 async def _tenant(_: Request, e: tenancy.TenantError):
     return JSONResponse(status_code=409, content={"error": "name_taken", "detail": str(e)})
 
 
+@app.get("/healthz")
+def healthz():
+    """Liveness only: the process is up. Deliberately does NOT touch FalkorDB, so a database
+    outage cannot make the hosting platform restart a healthy app. /health is the full check."""
+    return {"ok": True}
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "falkordb_ping_ms": client.ping(), "llm": llm.llm_status()}
+    return {"ok": True, "falkordb_ping_ms": client.ping(), "llm": llm.llm_status(),
+            "public_demo": config.PUBLIC_DEMO,
+            "background": {k: STATE.get(k) for k in ("seed", "seed_ms", "bg_error", "last_sweep")}}
 
 
 @app.get("/llm/status")
@@ -75,6 +106,7 @@ def create_stack(body: dict, stack_id: str | None = None, use_llm: bool = False,
                  tenant: str = Depends(tenant_dep)):
     """Load a BlastRadius spec or an mcp.json / Claude settings file as a new stack graph."""
     spec = parse_any(body, stack_id=stack_id, use_llm=use_llm)
+    public_demo.check_capacity()
     tenancy.claim(tenant, stack_graph_name(spec.id))  # refuses another tenant's stack id
     summary = schema.load_stack(spec)
     return {
@@ -152,6 +184,7 @@ def load_demo_stack(name: str, tenant: str = Depends(tenant_dep)):
     if not path.is_file() or "/" in name or ".." in name:
         raise HTTPException(404, f"no demo stack {name!r}")
     spec = parse_any(json.loads(path.read_text()))
+    public_demo.check_capacity()
     tenancy.claim(tenant, stack_graph_name(spec.id))
     return {**schema.load_stack(spec), "tenant": tenant, "demo": name}
 

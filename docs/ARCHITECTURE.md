@@ -186,7 +186,23 @@ fixes and rules are produced, not typed in. They are labelled `seeded`.
 - Unknown stack or tool: DENY.
 - A never-created session is a 404, not an empty success.
 
-## 15. What is not covered
+## 15. Running it in public
+
+With `PUBLIC_DEMO=true` the app limits what an anonymous visitor can do (no seed reset, no stack
+deletion, a stack cap, per-client rate limits, MOCK MODE forced, a janitor for old graphs) and
+re-seeds itself, because the free database has no backups. This is damage limitation, not
+authentication.
+
+Two performance points from deploying against a remote database. First, each query is a network
+round trip, so the Guard now sends independent reads together (the order of dependent steps and
+every decision rule are unchanged; all tests pass on both versions). Second, that change exposed a
+race we then measured: concurrent MERGEs of the same brand-new `Session` node can each create one,
+giving duplicate sessions and repeated event numbers (the original two-step code had the same
+flaw; the test that exercises it passed only by luck). Opening a session is now serialized per
+session within a process. This does not protect two separate processes opening the same new
+session at once; that needs a database-level uniqueness guarantee we did not add.
+
+## 16. What is not covered
 
 No real LLM agent was tested; taint is session-wide rather than data-flow precise; tenant isolation
 is app-level; the score weights and trust thresholds are unvalidated heuristics; `mcp.json` import

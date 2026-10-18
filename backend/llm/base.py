@@ -28,7 +28,8 @@ class LLMResult:
 
 
 def mock_mode() -> bool:
-    return config.LLM_MODE == "mock" or not config.ANTHROPIC_API_KEY
+    # PUBLIC_DEMO forces mock so a visitor can never spend the owner's API credits.
+    return config.PUBLIC_DEMO or config.LLM_MODE == "mock" or not config.ANTHROPIC_API_KEY
 
 
 def llm_status() -> dict:
@@ -36,7 +37,9 @@ def llm_status() -> dict:
     reason = None
     if mock:
         reason = (
-            "BLASTRADIUS_LLM=mock" if config.LLM_MODE == "mock" else "ANTHROPIC_API_KEY not set"
+            "PUBLIC_DEMO forces mock so visitors cannot spend API credits" if config.PUBLIC_DEMO
+            else "BLASTRADIUS_LLM=mock" if config.LLM_MODE == "mock"
+            else "ANTHROPIC_API_KEY not set"
         )
     return {
         "mock_mode": mock,

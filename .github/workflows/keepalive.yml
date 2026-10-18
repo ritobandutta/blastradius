@@ -1,0 +1,23 @@
+# Keeps the free Render service and the free FalkorDB Cloud instance from idling out.
+# Render spins down after 15 minutes without traffic; FalkorDB Cloud's free tier stops after a
+# day idle and deletes after 7. /health makes the app run a real query, so both stay awake.
+#
+# Setup: repo Settings -> Secrets and variables -> Actions -> Variables -> DEMO_URL
+# (for example https://blastradius.onrender.com). Without it this workflow does nothing.
+# Note: scheduled runs can be delayed by several minutes, and GitHub disables scheduled
+# workflows after 60 days of repo inactivity.
+name: keepalive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: ${{ vars.DEMO_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health (queries FalkorDB)
+        run: |
+          curl --fail --silent --show-error --max-time 90 --retry 2 --retry-delay 20 \
+            "${{ vars.DEMO_URL }}/health"

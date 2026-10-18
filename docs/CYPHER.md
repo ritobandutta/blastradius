@@ -66,14 +66,11 @@ not listed here, so this catalog cannot drift from the code. Run on the per-stac
 | Query | What it answers |
 |---|---|
 | `guard_tool_facts` | What a tool reads (untrusted sources), which sinks it still reaches, and whether the agent's `CAN_INVOKE` edge is gated |
-| `session_init` | Create the session (`MERGE`), score starts at 100 |
-| `session_next_seq` | Atomic event counter, safe under concurrent calls |
+| `session_init` | Open the session (`MERGE`, score starts at 100) **and** take the next event number, atomically, in one query. The counter does not advance if the session belongs to another stack |
 | `session_taint` | Is untrusted data in the agent's context? (executed + tainted events) |
 | `session_drift` | Counts behind the trust-score signals: burst, enumeration, new tool |
 | `session_penalize` | Lower the trust score and set sticky lockdown, atomically |
-| `session_record_event` | Write one step as an `Event` node |
-| `session_link_next` | `(prev)-[:NEXT]->(event)` |
-| `session_link_derived` | `(event)-[:DERIVED_FROM]->(tainted event)`, the taint provenance |
+| `session_record_event` | Write one step as an `Event` node together with its `(prev)-[:NEXT]->(event)` and `(event)-[:DERIVED_FROM]->(tainted event)` edges (the taint provenance), in one query |
 | `session_resolve` | Human approve/deny. Only matches `decision = 'ESCALATE' AND status = 'pending'`, so a DENY can never change |
 | `session_event_status` | Poll the outcome of one event while it waits for a human |
 | `session_pending` | ESCALATE calls awaiting a human |
@@ -134,3 +131,10 @@ Nodes: `Stack`, `Finding`, `Pattern`, `Fix`, `Rule`. Edges: `(Stack)-[:HAS]->(Fi
 | `precedent_record_ruling` | Store an advisory ruling `(Ruling)-[:CITES]->(Ruling)`. Always `advisory: true` |
 | `precedent_rulings_for_tool` | Earlier rulings about the same tool, which the judge cites |
 | `precedent_ruling_chain` | A ruling and the rulings it cites |
+
+### Housekeeping queries (public demo janitor)
+
+| Query | What it answers |
+|---|---|
+| `housekeeping_session_age` | When a session graph was opened, so stale ones can be deleted |
+| `housekeeping_stack_age` | When a stack graph was loaded. Null (older stacks) means "never delete" |

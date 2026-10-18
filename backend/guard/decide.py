@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 from backend import config
 from backend.graph import tenancy
-from backend.graph.client import GraphUnavailable, Graph, stack_graph_name
+from backend.graph.client import Graph, GraphUnavailable, parallel, stack_graph_name
 from backend.guard import taint, trust
 from backend.precedent import rules as precedent_rules
 
@@ -82,43 +82,59 @@ def check(session_id: str, stack_id: str, tool: str, args: dict | None = None,
 def _check(session_id: str, stack_id: str, tool: str, args: dict | None,
            tenant: str = "public") -> Decision:
     now = time.time()
-    if tenancy.owner_of(stack_graph_name(stack_id)) != tenant:
+    stack_name = stack_graph_name(stack_id)
+    stack = Graph(stack_name)
+
+    # Round trips matter when FalkorDB is remote (each costs a network hop), so independent
+    # reads go out together via parallel(). The ORDER of the dependent steps is unchanged:
+    # no session graph is created until the stack is known to exist and to belong to the caller.
+    #
+    # Round trip 1: does the stack exist, and who owns it?
+    owner, exists = parallel(lambda: tenancy.owner_of(stack_name), stack.exists)
+    if owner != tenant or not exists:
         # A stack owned by someone else looks exactly like a stack that does not exist.
         return fail_closed(session_id, stack_id, tool, f"unknown stack {stack_id!r}")
-    stack = Graph(stack_graph_name(stack_id))
-    if not stack.exists():
-        return fail_closed(session_id, stack_id, tool, f"unknown stack {stack_id!r}")
 
+    # Round trip 2: open the session (and take the next event number), and read the tool's facts.
     sg = taint.session_graph(session_id)
-    sess = taint.init_session(sg, session_id, stack_id, now)
+    sess, facts_res = parallel(
+        lambda: taint.open_session(sg, session_id, stack_id, now),
+        lambda: stack.named("guard_tool_facts", {"tool": tool}),
+    )
     if sess["stack"] != stack_id:
         raise ValueError(
             f"session {session_id!r} belongs to stack {sess['stack']!r}, not {stack_id!r}"
         )
+    seq = sess["seq"]
 
-    facts_res = stack.named("guard_tool_facts", {"tool": tool})
     facts = facts_res.dicts()[0] if facts_res.rows else None
     if facts is None or facts["tool"] is None:
         return _finish(sg, session_id, stack_id, tool, args, now, DENY,
                        [f"tool {tool!r} is not part of stack {stack_id!r}"],
                        tainted_call=False, context=[], facts={}, penalties=[], dlp=[],
-                       score=sess["score"], lockdown=bool(sess["lockdown"]))
+                       score=sess["score"], lockdown=bool(sess["lockdown"]), seq=seq)
 
     ahash = trust.args_hash(args)
-    seq = taint.next_seq(sg, session_id)
     sinks = [s for s in facts["sinks"] if s.get("sink")]
     exfil = any(s["kind"] == "exfil" for s in sinks)
     tainted_call = bool(facts["untrusted_sources"])
 
+    # Round trip 3: drift counters and the taint set (session graph), plus the toxic-combination
+    # check (stack graph) when this tool reaches a sink. The toxic result is only USED when the
+    # context is also tainted, exactly as before; fetching it early just saves a round trip.
+    d, context, toxic_res = parallel(
+        lambda: taint.drift(sg, tool, ahash, now),
+        lambda: taint.tainted_events(sg),
+        (lambda: stack.named("toxic_combinations")) if sinks else (lambda: None),
+    )
+
     # --- trust score: drift signals, then DLP on outbound args -----------------------------
-    d = taint.drift(sg, tool, ahash, now)
     penalties = trust.drift_penalties(d, now_args_new=d["same_args"] == 0)
     dlp_kinds = trust.dlp_scan(args) if sinks else []
     dlp_pen = trust.dlp_penalty(dlp_kinds)
     if dlp_pen:
         penalties.append(dlp_pen)
 
-    context = taint.tainted_events(sg)
     toxic_row = None
     reasons: list[str] = []
     decision = ALLOW
@@ -129,7 +145,7 @@ def _check(session_id: str, stack_id: str, tool: str, args: dict | None,
 
     needs_toxic = bool(context) and bool(sinks)
     if needs_toxic:
-        toxic_rows = stack.named("toxic_combinations").dicts()
+        toxic_rows = toxic_res.dicts()
         toxic_row = next((r for r in toxic_rows if r["agent"] == facts["agent"]), None)
         if toxic_row and toxic_row["toxic"]:
             decision = DENY
@@ -192,11 +208,9 @@ def _check(session_id: str, stack_id: str, tool: str, args: dict | None,
 
 
 def _finish(sg, session_id, stack_id, tool, args, now, decision, reasons, *, tainted_call,
-            context, facts, penalties, dlp, score, lockdown, seq=None, ahash=None,
+            context, facts, penalties, dlp, score, lockdown, seq, ahash=None,
             toxic=None, learned=None) -> Decision:
     ahash = ahash or trust.args_hash(args)
-    if seq is None:
-        seq = taint.next_seq(sg, session_id)
     status = {ALLOW: "allowed", DENY: "denied", ESCALATE: "pending"}[decision]
     taint.record_event(
         sg, seq=seq, tool=tool, args_hash=ahash, tainted=tainted_call, decision=decision,

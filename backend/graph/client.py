@@ -6,6 +6,7 @@ If the database is down we raise `GraphUnavailable`, and callers (the Guard) fai
 """
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -53,6 +54,13 @@ def _db() -> FalkorDB:
             username=config.FALKORDB_USERNAME,
             password=config.FALKORDB_PASSWORD,
         )
+    except redis.exceptions.AuthenticationError as e:
+        # Reachable but refused: say so, or a wrong password looks like a network outage.
+        # Still a GraphUnavailable, so the Guard fails closed either way.
+        raise GraphUnavailable(
+            f"FalkorDB rejected the credentials for {config.FALKORDB_HOST}:"
+            f"{config.FALKORDB_PORT} (check FALKORDB_USERNAME / FALKORDB_PASSWORD): {e}"
+        ) from e
     except redis.exceptions.RedisError as e:
         raise GraphUnavailable(f"FalkorDB unreachable: {e}") from e
 
@@ -80,6 +88,29 @@ def ping() -> float:
     t0 = time.perf_counter()
     list_graphs()
     return round((time.perf_counter() - t0) * 1000, 2)
+
+
+_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="graph")
+
+
+def parallel(*thunks):
+    """Run independent reads side by side and return their results in order.
+
+    Against a remote FalkorDB each query costs a network round trip, so a decision that needs
+    several independent facts is much faster when they travel together. Only for queries that
+    do not depend on each other. If any raises, the first error is re-raised after all finish.
+    """
+    futures = [_POOL.submit(t) for t in thunks]
+    results, first_error = [], None
+    for f in futures:
+        try:
+            results.append(f.result())
+        except Exception as e:  # noqa: BLE001 - re-raised below
+            first_error = first_error or e
+            results.append(None)
+    if first_error:
+        raise first_error
+    return results
 
 
 class Graph:

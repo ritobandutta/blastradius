@@ -110,9 +110,9 @@ def load_stack(spec: StackSpec) -> dict:
     for stmt in INDEXES:
         g.query(stmt)
     g.query(
-        "CREATE (:Agent {id:$id, name:$name, stack:$stack, spec_json:$spec})",
+        "CREATE (:Agent {id:$id, name:$name, stack:$stack, spec_json:$spec, created:$ts})",
         {"id": agent.id, "name": agent.name or agent.id, "stack": spec.id,
-         "spec": spec.model_dump_json()},
+         "spec": spec.model_dump_json(), "ts": time.time()},
     )
     g.query("UNWIND $rows AS r CREATE (:MCPServer {id:r.id, command:r.command, "
             "description_trust:r.description_trust})", {"rows": rows["servers"]})

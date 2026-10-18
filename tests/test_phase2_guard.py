@@ -250,6 +250,29 @@ def test_concurrent_sessions_do_not_cross_talk(stack, track_graph):
         assert results[i][-1] == (decide.DENY if n % 2 == 0 else decide.ALLOW), (i, results[i])
 
 
+def test_opening_one_new_session_concurrently_creates_exactly_one_session(stack):
+    """Regression for a race measured against FalkorDB: concurrent MERGEs of the same new
+    Session node created duplicates (up to 9 copies) and repeated event numbers."""
+    for _ in range(8):
+        sid = unique("race")
+        g = taint.session_graph(sid)
+        seqs, lock = [], threading.Lock()
+
+        def w():
+            r = taint.open_session(g, sid, stack, 0.0)
+            with lock:
+                seqs.append(r["seq"])
+
+        ts = [threading.Thread(target=w) for _ in range(12)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        try:
+            assert sorted(seqs) == list(range(1, 13))
+            assert g.ro_query("MATCH (s:Session) RETURN count(s)").rows[0][0] == 1
+        finally:
+            g.delete()
+
+
 def test_event_sequence_numbers_are_unique_under_concurrency(stack, sess):
     seqs = []
     lock = threading.Lock()

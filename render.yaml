@@ -1,0 +1,22 @@
+# Render Blueprint: the app only. The database is FalkorDB Cloud (free tier), set via secrets.
+# Create with: Render dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: blastradius
+    runtime: docker
+    plan: free
+    region: ohio            # closest Render region to FalkorDB Cloud us-central1
+    healthCheckPath: /healthz
+    envVars:
+      - key: PUBLIC_DEMO    # blocks destructive routes, rate-limits, forces MOCK MODE
+        value: "true"
+      - key: AUTO_SEED      # re-seed precedent memory if the free database was wiped
+        value: "true"
+      - key: FALKORDB_HOST
+        sync: false         # entered in the dashboard, never committed
+      - key: FALKORDB_PORT
+        sync: false
+      - key: FALKORDB_USERNAME
+        sync: false
+      - key: FALKORDB_PASSWORD
+        sync: false

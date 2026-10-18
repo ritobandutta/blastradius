@@ -9,3 +9,6 @@ frontend/dist/
 .DS_Store
 *.egg-info/
 .coverage
+
+.env.*
+!.env.example

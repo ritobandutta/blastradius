@@ -124,6 +124,26 @@ def test_guard_denies_when_falkordb_is_unreachable():
 
 
 @pytest.mark.no_db
+def test_bad_credentials_are_reported_as_such_and_still_fail_closed(monkeypatch):
+    import redis
+
+    from backend import config
+    from backend.graph import client
+
+    def refuse(*a, **k):
+        raise redis.exceptions.AuthenticationError("invalid username-password pair")
+
+    monkeypatch.setattr(client, "FalkorDB", refuse)
+    monkeypatch.setattr(config, "FALKORDB_HOST", "db.example")
+    client._db.cache_clear()
+    try:
+        with pytest.raises(client.GraphUnavailable, match="rejected the credentials"):
+            client.ping()
+    finally:
+        client._db.cache_clear()
+
+
+@pytest.mark.no_db
 def test_api_returns_503_not_an_empty_200_when_falkordb_is_unreachable():
     r = _py(
         "from fastapi.testclient import TestClient\n"

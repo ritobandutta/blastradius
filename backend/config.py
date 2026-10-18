@@ -4,7 +4,10 @@ from pathlib import Path
 
 
 def _load_dotenv() -> None:
-    path = Path(__file__).resolve().parent.parent / ".env"
+    """Load .env, or the file named by BLASTRADIUS_ENV_FILE (relative to the repo root).
+    Real environment variables always win over the file."""
+    root = Path(__file__).resolve().parent.parent
+    path = root / (os.getenv("BLASTRADIUS_ENV_FILE") or ".env")
     if not path.exists():
         return
     for line in path.read_text().splitlines():
@@ -28,6 +31,18 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 LLM_MODE = os.getenv("BLASTRADIUS_LLM", "auto")
 
 GUARD_LOCKDOWN_THRESHOLD = int(os.getenv("GUARD_LOCKDOWN_THRESHOLD", "40"))
+
+
+def _flag(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+
+# Public demo hardening (see backend/api/public_demo.py). Read at call time via the functions
+# below so tests can flip them.
+PUBLIC_DEMO = _flag("PUBLIC_DEMO")
+AUTO_SEED = _flag("AUTO_SEED", PUBLIC_DEMO)
+MAX_STACKS = int(os.getenv("MAX_STACKS", "40"))
+JANITOR_MAX_AGE_S = int(os.getenv("JANITOR_MAX_AGE_S", "3600"))
 
 # The shared graph of findings, patterns, fixes and learned rules. Overridable so tests never
 # touch the real one.
