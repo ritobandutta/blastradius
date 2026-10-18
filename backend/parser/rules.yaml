@@ -1,0 +1,98 @@
+# Annotation rules: how a tool name / MCP server is mapped to graph facts.
+# Edit this file to teach BlastRadius about your own tools. Anything an author states
+# explicitly in the stack spec wins over these rules.
+#
+# trust:    untrusted = attacker can influence the content (email, web, chat, tickets)
+#           internal  = private company data (a leak is a breach)
+#           trusted   = fully controlled by us
+# sinks:    exfil = data leaves the system, mutate = state changes, exec = code runs
+
+tool_rules:
+  - match: '^(read_email|get_email|list_inbox|gmail_.*|read_mail)$'
+    side_effect: read
+    reads: [{id: inbound-email, label: Inbound customer email, trust: untrusted}]
+
+  - match: '^(read_slack|slack_read|read_channel|list_messages)$'
+    side_effect: read
+    reads: [{id: chat-messages, label: Chat messages, trust: untrusted}]
+
+  - match: '^(fetch_url|web_fetch|browse.*|http_get|scrape.*)$'
+    side_effect: network_out
+    reads: [{id: web-content, label: Public web pages, trust: untrusted}]
+    reaches: [{id: web-egress, label: Outbound HTTP, kind: exfil}]
+
+  - match: '^(read_file|cat_file|list_dir|read_text_file)$'
+    side_effect: read
+    reads: [{id: local-files, label: Workspace files, trust: internal}]
+
+  - match: '^(db_query|sql_query|query_db|run_query)$'
+    side_effect: read
+    reads: [{id: customer-db, label: Customer database, trust: internal}]
+    holds: [{id: db-credentials, type: secret, sensitivity: 4, label: Database credentials}]
+
+  - match: '^(send_email|email_send|reply_email)$'
+    side_effect: network_out
+    reaches: [{id: outbound-email, label: Outbound email, kind: exfil}]
+
+  - match: '^(slack_post|post_message|send_slack|notify_channel)$'
+    side_effect: network_out
+    reaches: [{id: slack-channel, label: Slack channel, kind: exfil}]
+
+  - match: '^(http_post|webhook_post|upload.*)$'
+    side_effect: network_out
+    reaches: [{id: web-egress, label: Outbound HTTP, kind: exfil}]
+
+  - match: '^(run_shell|exec.*|shell|bash|run_command|eval.*)$'
+    side_effect: exec
+    reaches: [{id: host-shell, label: Host shell, kind: exec}]
+    holds: [{id: host-permissions, type: permission, sensitivity: 5, label: Host user permissions}]
+
+  - match: '^(write_file|create_file|edit_file|append_file)$'
+    side_effect: write
+    reaches: [{id: filesystem, label: Workspace filesystem, kind: mutate}]
+
+  - match: '^(delete_.*|drop_.*|remove_.*|rm)$'
+    side_effect: destructive
+    reaches: [{id: filesystem, label: Workspace filesystem, kind: mutate}]
+
+  - match: '^(get_secret|read_env|vault_.*|get_api_key)$'
+    side_effect: read
+    reads: [{id: secret-store, label: Secret store, trust: internal}]
+    holds: [{id: api-keys, type: secret, sensitivity: 5, label: API keys}]
+
+# Used only by `mcp.json` import, where tools are not listed. Maps a server's name/command to
+# the tool names it is known to expose; each tool then goes through tool_rules above.
+server_rules:
+  - match: 'mail|gmail|imap'
+    tools: [read_email, send_email]
+  - match: 'slack'
+    tools: [read_slack, slack_post]
+  - match: 'fetch|browser|puppeteer|playwright|web'
+    tools: [fetch_url]
+  - match: 'filesystem|fs|files'
+    tools: [read_file, write_file]
+  - match: 'postgres|mysql|sqlite|database|db'
+    tools: [db_query]
+  - match: 'shell|terminal|exec|command'
+    tools: [run_shell]
+  - match: 'vault|secret|env'
+    tools: [get_secret]
+
+# Fallback keyword heuristic for tools that match nothing above. These annotations are
+# marked "suggested" and need a human to confirm them. Unknown data is assumed untrusted.
+heuristics:
+  - keywords: [send, post, upload, publish, email, webhook, notify, tweet]
+    side_effect: network_out
+    reaches: [{id: external-egress, label: Unknown outbound channel, kind: exfil}]
+  - keywords: [delete, drop, remove, destroy, truncate, wipe]
+    side_effect: destructive
+    reaches: [{id: unknown-store, label: Unknown data store, kind: mutate}]
+  - keywords: [exec, run, shell, eval, spawn, script]
+    side_effect: exec
+    reaches: [{id: host-shell, label: Host shell, kind: exec}]
+  - keywords: [write, create, update, set, edit, put, save]
+    side_effect: write
+    reaches: [{id: unknown-store, label: Unknown data store, kind: mutate}]
+  - keywords: [read, get, list, search, fetch, query, find, lookup]
+    side_effect: read
+    reads: [{id: unknown-source, label: Unknown data source, trust: untrusted}]

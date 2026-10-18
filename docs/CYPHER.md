@@ -26,12 +26,36 @@ real server, so we do not depend on it.
 - `algo.maxFlow` with several relationship types (see above).
 - `algo.BFS(d, 6, 'CAN_INVOKE')` returned no rows for our graph. We do not use it.
 
+## Also verified (second spike)
+
+- Edge predicates inside a path filter: `WHERE all(r IN relationships(p) WHERE NOT coalesce(r.gated,false))`.
+  This is how a confirmation gate (`gated`) or a scoped token (`scoped`) removes an edge from
+  the attack graph without deleting it.
+- Pattern predicate in WHERE: `WHERE (t)-[:REACHES]->(:Sink)` works. `exists((t)-[...]->())` does **not**.
+- `UNWIND nodes(p) AS n RETURN n.id, count(DISTINCT p)` gives exact "paths through this node" counts.
+- `UNION`, `labels(n)`, `type(r)`, `startNode(r)`, `endNode(r)` all work.
+
 ## Known engine behaviour we design around
+
+- **Variable-length paths may revisit nodes** (`email -> fetch_url -> agent -> fetch_url -> http`).
+  Without a filter the same tool appears twice, which inflates path counts. Every path query
+  therefore keeps only simple paths:
+  `size(ids) = size(reduce(acc=[], x IN ids | CASE WHEN x IN acc THEN acc ELSE acc+[x] END))`.
 
 - An unreferenced relationship alias is only checked for existence, not enumerated. Queries
   that count or enumerate paths always reference the path (`nodes(p)` / `relationships(p)`).
 
 ## Queries the product relies on
 
-This section is filled in as each phase lands; a test fails if a query listed here is
-missing from `backend/graph/queries/`.
+Each query lives in `backend/graph/queries/<name>.cypher`. A test fails if a `.cypher` file is
+not listed here, so this catalog cannot drift from the code. Run on the per-stack graph
+`stack:<id>` unless noted.
+
+| Query | What it answers | FalkorDB features used |
+|---|---|---|
+| `paths_to_sinks` | Every open path `untrusted DataSource -> Tool -> Agent -> Tool -> Sink`, with the highest secret sensitivity on the path | Pattern match, `OPTIONAL MATCH`, edge predicates (`gated`, `scoped`) |
+| `toxic_combinations` | Does an agent hold the lethal trifecta (untrusted ingest + private data/secret + exfil egress)? | Chained `OPTIONAL MATCH`, `collect(DISTINCT ...)` |
+| `choke_points` | How many open paths run through each tool | `UNWIND`, `count(DISTINCT ...)` |
+| `betweenness` | Centrality of each node over the capability edges | `algo.betweenness` |
+
+This list grows as later phases add Guard, defense and precedent queries.

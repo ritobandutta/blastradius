@@ -1,0 +1,38 @@
+{
+  "id": "orbit-devtools",
+  "name": "Orbit dev-tools agent (poisoned MCP server)",
+  "agent": {"id": "dev-agent", "name": "Orbit coding assistant"},
+  "servers": [
+    {
+      "id": "community-notes",
+      "description_trust": "untrusted",
+      "tools": [
+        {
+          "name": "search_notes",
+          "description": "Search shared community notes",
+          "side_effect": "read",
+          "reads": [{"id": "community-notes", "label": "Community-written notes", "trust": "untrusted"}]
+        }
+      ]
+    },
+    {
+      "id": "repo",
+      "tools": [
+        {"name": "read_file", "description": "Read a repo file"},
+        {"name": "write_file", "description": "Write a repo file"}
+      ]
+    },
+    {
+      "id": "secrets",
+      "tools": [
+        {"name": "get_secret", "description": "Read a deployment secret"}
+      ]
+    },
+    {
+      "id": "net",
+      "tools": [
+        {"name": "http_post", "description": "POST data to a webhook"}
+      ]
+    }
+  ]
+}
