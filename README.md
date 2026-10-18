@@ -26,10 +26,12 @@ docker compose up --build        # FalkorDB + the app
 # open http://localhost:8010     (FalkorDB Browser: http://localhost:3010)
 ```
 
-Without `ANTHROPIC_API_KEY` everything runs, and the UI, CLI and proxy show a **MOCK MODE**
-badge. Only the optional LLM features (red-team rewrite variant, annotation assist, the
-Tribunal's wording) are affected. The graph analysis and the Guard never use an LLM. Set the key
-in your shell or a `.env` file to turn the live path on.
+Without an LLM key everything runs, and the UI, CLI and proxy show a **MOCK MODE** badge. Only
+the optional LLM features (red-team rewrite variant, annotation assist, the Tribunal's wording)
+are affected. The graph analysis and the Guard never use an LLM. To turn the live path on, put
+`OPENROUTER_API_KEY` in `.env` (OpenRouter has free `:free` models; default
+`nvidia/nemotron-3-super-120b-a12b:free`) or set `ANTHROPIC_API_KEY`. On a public deployment only
+free OpenRouter models may run, within a daily request budget (default 35).
 
 Ports are 6390 (FalkorDB), 8010 (app) and 3010 (FalkorDB Browser) because 6379/8000/3000 are
 commonly taken.
@@ -40,7 +42,7 @@ Development without Docker for the app:
 docker compose up -d falkordb
 uv sync && uv run uvicorn backend.api.main:app --port 8010
 cd frontend && npm install && npm run dev        # http://localhost:5173
-uv run pytest                                    # 170 tests, real FalkorDB
+uv run pytest                                    # 210 tests, real FalkorDB
 ```
 
 CLI:
@@ -180,9 +182,11 @@ use a password that is used nowhere else. It also has no backups, which is why t
   from names and flagged `suggested` for a human to confirm.
 - **The precedent corpus is synthetic.** Five seeded stacks (`demo/seed_stacks`), labelled
   `seeded` in the UI. They are built by the real pipeline, not typed in, but they are not real incidents.
-- **Live-LLM paths are lightly tested.** One live call was verified, but the live Tribunal,
-  the LLM-written red-team variant and the annotation assist were exercised in mock mode and with a
-  mocked failure, not against the live API end to end.
+- **Live-LLM paths were each run once, not soaked.** The Tribunal, the LLM-written red-team
+  variant and the annotation assist ran end to end against a free OpenRouter model (output was
+  sensible, and the Tribunal left the call pending). Free models rate-limit and come and go: in
+  testing several answered 429 and one auto-router served an unusable model, so the default was
+  chosen by trial. Failures are reported as MOCK MODE with the error, never hidden.
 - **No live deployment yet**, and when deployed the free tiers sleep when idle, the database is
   unencrypted in transit, and queries cross a network instead of a loopback.
 
@@ -203,5 +207,5 @@ backend/   graph/ (client, schema, queries/*.cypher, analysis, tenancy)  parser/
            redteam/  defense/  precedent/  llm/  api/  cli.py  mcp_server.py
 demo/      toy_agent/ (simulated tools)  stacks/ (vulnerable, fixed, second_pattern)
            seed_stacks/  benign_sessions/
-frontend/  Vite + React + Cytoscape      tests/  170 tests      docs/  design + demo
+frontend/  Vite + React + Cytoscape      tests/  210 tests      docs/  design + demo
 ```

@@ -27,6 +27,21 @@ FALKORDB_PASSWORD = os.getenv("FALKORDB_PASSWORD") or None
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or None
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+
+# OpenRouter (OpenAI-compatible; has free ":free" models). With LLM_PROVIDER=auto an
+# OpenRouter key wins over an Anthropic key. The default was chosen by testing free models on
+# the Tribunal and annotation prompts: nemotron-3-super gave a valid verdict and valid JSON,
+# while the "openrouter/free" auto-router sometimes served a content-safety model that returned
+# unusable text, and several other free models answered 429 from their upstream provider. Free
+# models come and go; set OPENROUTER_MODEL if this one disappears or starts failing.
+LLM_PROVIDER = os.getenv("BLASTRADIUS_LLM_PROVIDER", "auto")  # auto | openrouter | anthropic
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or None
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
+OPENROUTER_REFERER = os.getenv("OPENROUTER_REFERER") or None
+# Live LLM requests allowed per UTC day. None = default: 35 in PUBLIC_DEMO (OpenRouter's free
+# tier allows 50/day per account, so this leaves headroom), unlimited otherwise. 0 = unlimited.
+_budget = os.getenv("LLM_DAILY_BUDGET")
+LLM_DAILY_BUDGET = int(_budget) if _budget not in (None, "") else None
 # "mock" forces the deterministic MockLLM even when a key is present (used by the tests).
 LLM_MODE = os.getenv("BLASTRADIUS_LLM", "auto")
 

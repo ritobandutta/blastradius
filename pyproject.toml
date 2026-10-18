@@ -22,7 +22,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
-markers = ["no_db: test does not need FalkorDB"]
+markers = ["no_db: test does not need FalkorDB", "db: test needs FalkorDB (default; explicit for clarity)"]
 
 [tool.ruff]
 line-length = 100

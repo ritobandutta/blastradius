@@ -4,7 +4,9 @@ The API has no login. On the open internet that would let any visitor wipe the s
 delete other people's stacks, fill the database, or spend the owner's API credits. In PUBLIC_DEMO
 mode this module:
 
-  * forces the LLM layer into MOCK MODE (see llm/base.py), so no visitor can spend credits
+  * lets the LLM layer run live only on free OpenRouter models, within a daily request
+    budget (see llm/base.py), so no visitor can spend money or exhaust the quota; anything
+    else is forced to MOCK MODE
   * blocks the destructive routes (seed reset, deleting a stack)
   * caps the number of stacks, and a janitor deletes old stacks and sessions
   * rate-limits requests per client, with a tighter limit on the expensive routes

@@ -8,10 +8,12 @@ services:
     region: ohio            # closest Render region to FalkorDB Cloud us-central1
     healthCheckPath: /healthz
     envVars:
-      - key: PUBLIC_DEMO    # blocks destructive routes, rate-limits, forces MOCK MODE
+      - key: PUBLIC_DEMO    # blocks destructive routes, rate-limits, free LLM models only
         value: "true"
       - key: AUTO_SEED      # re-seed precedent memory if the free database was wiped
         value: "true"
+      - key: OPENROUTER_API_KEY   # optional; without it the app shows MOCK MODE
+        sync: false
       - key: FALKORDB_HOST
         sync: false         # entered in the dashboard, never committed
       - key: FALKORDB_PORT

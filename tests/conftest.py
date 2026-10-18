@@ -32,6 +32,23 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_llm(monkeypatch):
+    """No test may reach a real LLM, even if a key ends up in .env. Tests that need a provider
+    set the keys themselves and inject an httpx.MockTransport."""
+    from backend import config
+    from backend.llm import base
+
+    monkeypatch.setattr(config, "OPENROUTER_API_KEY", None)
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", None)
+    monkeypatch.setattr(config, "LLM_PROVIDER", "auto")
+    monkeypatch.setattr(config, "LLM_DAILY_BUDGET", None)
+    monkeypatch.setattr(base, "_TRANSPORT", None)
+    base.reset_budget()
+    yield
+    base.reset_budget()
+
+
+@pytest.fixture(autouse=True)
 def _isolated_precedent_graph(monkeypatch):
     """Every test gets its own precedent graph, so learned rules from one test (or from the
     real demo data) can never change the Guard's decisions in another. Code reads
