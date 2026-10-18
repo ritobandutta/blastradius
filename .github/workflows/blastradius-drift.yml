@@ -1,0 +1,49 @@
+# Policy-drift check: comment on a PR with the attack paths its mcp.json / stack-spec change
+# introduces or removes, and fail the check if it opens new ones.
+#
+# Copy this file into your own repo and point STACK_FILE at your config.
+name: BlastRadius drift
+
+on:
+  pull_request:
+    paths:
+      - "demo/stacks/**"
+      - "mcp.json"
+
+env:
+  STACK_FILE: demo/stacks/vulnerable.json
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6390:6379
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - name: Get the base version of the config
+        run: git show "origin/${{ github.base_ref }}:${STACK_FILE}" > /tmp/old.json
+      - name: Diff attack surface
+        env:
+          FALKORDB_HOST: localhost
+          FALKORDB_PORT: "6390"
+          BLASTRADIUS_LLM: mock
+        run: |
+          uv run python -m backend.cli diff /tmp/old.json "${STACK_FILE}" > drift.md
+          cat drift.md
+          uv run python -m backend.cli diff /tmp/old.json "${STACK_FILE}" --fail-on-regression > /dev/null
+      - name: Comment on the PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: drift.md

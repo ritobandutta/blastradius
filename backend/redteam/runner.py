@@ -18,7 +18,7 @@ from backend.graph.analysis import AttackPath
 from backend.graph.schema import stored_spec
 from backend.redteam.variants import Variant, build_variants
 from demo.toy_agent.agent import GullibleAgent, Passthrough
-from demo.toy_agent.gateways import GuardGateway, NaiveGateway
+from demo.toy_agent.gateways import ConfigGateway, GuardGateway, NaiveGateway
 from demo.toy_agent.tools import SandboxEnv
 
 DEFENCES = ("unprotected", "naive", "guard")
@@ -59,7 +59,8 @@ def run_trial(stack_id: str, tool_names: set[str], path: AttackPath, variant: Va
               defence: str, canary: str) -> Trial:
     env = _env_for(variant, path, canary)
     gw = {"unprotected": Passthrough(), "naive": NaiveGateway(),
-          "guard": GuardGateway(stack_id)}[defence]
+          "guard": GuardGateway(stack_id),
+          "config": ConfigGateway(stack_id, path.sink)}[defence]
     agent = GullibleAgent(env, tool_names, gw)
     try:
         ep = agent.run(path.ingest_tool, {"for": "assistant task"})

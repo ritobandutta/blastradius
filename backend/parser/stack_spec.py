@@ -45,7 +45,8 @@ def from_mcp_config(data: dict, stack_id: str, use_llm: bool = False) -> StackSp
             if re.search(rule["match"], haystack):
                 tool_names += [t for t in rule["tools"] if t not in tool_names]
         tools = [ToolSpec(name=t, confirmed=False) for t in tool_names]
-        servers.append(ServerSpec(id=_slug(name), command=cfg.get("command"), tools=tools))
+        servers.append(ServerSpec(id=_slug(name), command=cfg.get("command"),
+                                  args=[str(a) for a in cfg.get("args", [])], tools=tools))
     spec = StackSpec(id=_slug(stack_id), source="mcp.json", servers=servers)
     annotate.annotate_stack(spec, use_llm=use_llm)
     # Everything in an imported config is a guess about tools, so require confirmation.

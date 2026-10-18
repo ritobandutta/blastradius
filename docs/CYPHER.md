@@ -80,4 +80,18 @@ not listed here, so this catalog cannot drift from the code. Run on the per-stac
 | `session_events` | Full step list and trust score for the live panel |
 | `session_edges` | `NEXT` and `DERIVED_FROM` edges for drawing the taint graph |
 
-This list grows as later phases add defense and precedent queries.
+### Defense queries
+
+The attack paths themselves always come from `paths_to_sinks`. To cross-check the cut we also
+load the path subgraph into a throwaway graph `defense:<id>` and let FalkorDB compute the flow.
+
+| Query | What it answers |
+|---|---|
+| `defense_flow_load` | Create the nodes of the flow network in the scratch graph |
+| `defense_flow_edges` | Create `FLOW` edges. Capacity is the cost of the fix that severs that edge. All four capability edge types are folded into `FLOW` because `algo.maxFlow` accepts one relationship type |
+| `defense_maxflow` | `algo.maxFlow` from `SRC` to `SNK`. By max-flow/min-cut its value equals the cheapest fix set, and we compare it with the networkx cut |
+| `config_tool_state` | What a patched config alone enforces for a tool (gated, scoped sinks). Used to re-run the red team against the patch with no Guard |
+
+Proof of absence re-runs `paths_to_sinks` on the patched stack graph; there is no separate query.
+
+This list grows as later phases add precedent queries.

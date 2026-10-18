@@ -55,6 +55,7 @@ class ToolSpec(BaseModel):
 class ServerSpec(BaseModel):
     id: str
     command: str | None = None
+    args: list[str] = Field(default_factory=list)
     # If untrusted, the text of this server's tool descriptions is itself attacker-influenced
     # (tool-description poisoning); the loader adds an untrusted DataSource for it.
     description_trust: Literal["trusted", "untrusted"] = "trusted"
