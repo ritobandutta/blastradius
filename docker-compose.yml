@@ -1,0 +1,16 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "6390:6379"   # 6379 is often taken by a local redis
+      - "3010:3000"   # FalkorDB Browser
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  falkordb_data:
