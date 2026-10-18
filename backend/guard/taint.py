@@ -12,7 +12,7 @@ influenced data into the agent's context.
 """
 import json
 
-from backend.graph.client import Graph, session_graph_name
+from backend.graph.client import Graph, GraphQueryError, session_graph_name
 
 
 def session_graph(session_id: str) -> Graph:
@@ -73,7 +73,14 @@ def event_status(g: Graph, seq: int) -> dict | None:
 
 def session_view(session_id: str) -> dict:
     g = session_graph(session_id)
-    rows = g.named("session_events").dicts()
+    try:
+        rows = g.named("session_events").dicts()
+    except GraphQueryError as e:
+        # FalkorDB reports a graph that was never created as "empty key". That is simply
+        # an unknown session (404), not a failed query (500).
+        if "empty key" in e.message:
+            raise KeyError(session_id) from e
+        raise
     if not rows:
         raise KeyError(session_id)
     head = rows[0]

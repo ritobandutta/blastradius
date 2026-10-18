@@ -299,6 +299,15 @@ def test_guard_check_endpoint_and_resolve_flow(load_demo, track_graph):
     assert api.get(f"/guard/sessions/{sid}").json()["events"][0]["status"] == "approved"
 
 
+def test_unknown_session_is_404_not_500():
+    """The UI polls a session before its first call. A never-created session graph is an
+    unknown session (404), not a failed query (500)."""
+    api = TestClient(app)
+    r = api.get(f"/guard/sessions/{unique('never')}")
+    assert r.status_code == 404 and r.json()["error"] == "not_found"
+    assert api.get("/guard/sessions/x/../y").status_code in (404, 422)
+
+
 def test_http_cannot_approve_a_deny(stack, track_graph):
     sid = unique("httpd")
     track_graph(session_graph_name(sid))

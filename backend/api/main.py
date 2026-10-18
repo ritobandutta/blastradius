@@ -1,7 +1,11 @@
 """FastAPI app. Routers are added per phase; this module wires them together."""
+import json
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.api import defense_routes, guard_routes, precedent_routes, redteam_routes
 from backend.api.deps import require_stack, tenant_dep
@@ -124,3 +128,37 @@ def stack_node(stack_id: str, node_id: str, tenant: str = Depends(tenant_dep)):
 def stack_spec(stack_id: str, tenant: str = Depends(tenant_dep)):
     require_stack(stack_id, tenant)
     return schema.stored_spec(stack_id).model_dump()
+
+
+# ---- demo stacks ----------------------------------------------------------------------
+
+DEMO_DIR = Path(__file__).resolve().parent.parent.parent / "demo" / "stacks"
+DEMO_BLURBS = {
+    "vulnerable": "Support agent: reads email and web pages, holds a database and a shell.",
+    "fixed": "The same stack hand-patched with confirmation gates.",
+    "second_pattern": "Dev assistant with a poisoned MCP server (tool-description poisoning).",
+}
+
+
+@app.get("/demo/stacks")
+def demo_stacks():
+    return {"demos": [{"name": p.stem, "blurb": DEMO_BLURBS.get(p.stem, "")}
+                      for p in sorted(DEMO_DIR.glob("*.json"))]}
+
+
+@app.post("/demo/stacks/{name}/load")
+def load_demo_stack(name: str, tenant: str = Depends(tenant_dep)):
+    path = DEMO_DIR / f"{name}.json"
+    if not path.is_file() or "/" in name or ".." in name:
+        raise HTTPException(404, f"no demo stack {name!r}")
+    spec = parse_any(json.loads(path.read_text()))
+    tenancy.claim(tenant, stack_graph_name(spec.id))
+    return {**schema.load_stack(spec), "tenant": tenant, "demo": name}
+
+
+# ---- built frontend (served by the same process in the Docker image) -------------------
+
+_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if _DIST.is_dir():
+    # Mounted last so every API route above wins; unknown paths fall through to the SPA.
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="frontend")
