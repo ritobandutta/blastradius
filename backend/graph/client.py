@@ -44,12 +44,17 @@ class Result:
 
 @lru_cache(maxsize=1)
 def _db() -> FalkorDB:
-    return FalkorDB(
-        host=config.FALKORDB_HOST,
-        port=config.FALKORDB_PORT,
-        username=config.FALKORDB_USERNAME,
-        password=config.FALKORDB_PASSWORD,
-    )
+    # The client connects eagerly, so a dead database fails here, before any query wrapper
+    # runs. lru_cache does not cache exceptions, so the next call retries the connection.
+    try:
+        return FalkorDB(
+            host=config.FALKORDB_HOST,
+            port=config.FALKORDB_PORT,
+            username=config.FALKORDB_USERNAME,
+            password=config.FALKORDB_PASSWORD,
+        )
+    except redis.exceptions.RedisError as e:
+        raise GraphUnavailable(f"FalkorDB unreachable: {e}") from e
 
 
 @lru_cache(maxsize=None)

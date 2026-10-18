@@ -3,7 +3,7 @@ services:
     image: falkordb/falkordb:latest
     ports:
       - "6390:6379"   # 6379 is often taken by a local redis
-      - "3010:3000"   # FalkorDB Browser
+      - "3010:3000"   # FalkorDB Browser: explore the graphs visually
     volumes:
       - falkordb_data:/var/lib/falkordb/data
     healthcheck:
@@ -11,6 +11,19 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+
+  app:
+    build: .
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+    ports:
+      - "8010:8010"
 
 volumes:
   falkordb_data:
