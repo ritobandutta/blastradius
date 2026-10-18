@@ -1,0 +1,195 @@
+"""The Guard: a deterministic ALLOW / ESCALATE / DENY decision for one pending tool call.
+
+No LLM is involved anywhere in this file. Every fact the decision rests on is a FalkorDB query:
+
+  guard_tool_facts    (stack graph)    what the tool reads, reaches, and whether it is gated
+  session_taint       (session graph)  is attacker-influenced data in the agent's context?
+  toxic_combinations  (stack graph)    does this agent hold the lethal trifecta?
+  session_drift       (session graph)  counters behind the trust score
+
+Rules, in order (first match wins):
+  0. FalkorDB unreachable or tool unknown to the stack           -> DENY   (fail closed)
+  1. session in Lockdown and the tool is not read-only           -> DENY
+  2. tainted context, tool reaches a sink, agent is toxic        -> DENY   (structural, no text matching)
+  3. secret-like string in the args of a tool that reaches exfil -> DENY
+  4. tainted context, tool reaches a sink, agent not toxic       -> ESCALATE
+  5. tool is gated (config says a human must confirm)            -> ESCALATE
+  6. otherwise                                                   -> ALLOW
+
+The check never looks at the *text* of tool results, so a paraphrased or obfuscated injection
+is treated exactly like an obvious one: what matters is the shape of the path.
+"""
+import time
+from dataclasses import dataclass, field
+
+from backend import config
+from backend.graph.client import GraphUnavailable, Graph, stack_graph_name
+from backend.guard import taint, trust
+
+ALLOW, ESCALATE, DENY = "ALLOW", "ESCALATE", "DENY"
+
+
+@dataclass
+class Decision:
+    decision: str
+    reasons: list[str]
+    session: str
+    stack: str
+    tool: str
+    seq: int | None = None
+    status: str = "decided"  # allowed | denied | pending
+    tainted_call: bool = False
+    context_tainted: bool = False
+    score: int | None = None
+    lockdown: bool = False
+    penalties: list[dict] = field(default_factory=list)
+    dlp: list[str] = field(default_factory=list)
+    provenance: dict = field(default_factory=dict)
+    fail_closed: bool = False
+    latency_ms: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "decision": self.decision, "status": self.status, "reasons": self.reasons,
+            "session": self.session, "stack": self.stack, "tool": self.tool, "seq": self.seq,
+            "tainted_call": self.tainted_call, "context_tainted": self.context_tainted,
+            "trust_score": self.score, "lockdown": self.lockdown, "penalties": self.penalties,
+            "dlp": self.dlp, "provenance": self.provenance, "fail_closed": self.fail_closed,
+            "latency_ms": self.latency_ms,
+        }
+
+
+def fail_closed(session: str, stack: str, tool: str, why: str) -> Decision:
+    return Decision(DENY, [f"fail closed: {why}"], session, stack, tool, status="denied",
+                    fail_closed=True)
+
+
+def check(session_id: str, stack_id: str, tool: str, args: dict | None = None) -> Decision:
+    t0 = time.perf_counter()
+    try:
+        d = _check(session_id, stack_id, tool, args)
+    except GraphUnavailable as e:
+        d = fail_closed(session_id, stack_id, tool, f"FalkorDB unavailable ({e})")
+    d.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+    return d
+
+
+def _check(session_id: str, stack_id: str, tool: str, args: dict | None) -> Decision:
+    now = time.time()
+    stack = Graph(stack_graph_name(stack_id))
+    if not stack.exists():
+        return fail_closed(session_id, stack_id, tool, f"unknown stack {stack_id!r}")
+
+    sg = taint.session_graph(session_id)
+    sess = taint.init_session(sg, session_id, stack_id, now)
+    if sess["stack"] != stack_id:
+        raise ValueError(
+            f"session {session_id!r} belongs to stack {sess['stack']!r}, not {stack_id!r}"
+        )
+
+    facts_res = stack.named("guard_tool_facts", {"tool": tool})
+    facts = facts_res.dicts()[0] if facts_res.rows else None
+    if facts is None or facts["tool"] is None:
+        return _finish(sg, session_id, stack_id, tool, args, now, DENY,
+                       [f"tool {tool!r} is not part of stack {stack_id!r}"],
+                       tainted_call=False, context=[], facts={}, penalties=[], dlp=[],
+                       score=sess["score"], lockdown=bool(sess["lockdown"]))
+
+    ahash = trust.args_hash(args)
+    seq = taint.next_seq(sg, session_id)
+    sinks = [s for s in facts["sinks"] if s.get("sink")]
+    exfil = any(s["kind"] == "exfil" for s in sinks)
+    tainted_call = bool(facts["untrusted_sources"])
+
+    # --- trust score: drift signals, then DLP on outbound args -----------------------------
+    d = taint.drift(sg, tool, ahash, now)
+    penalties = trust.drift_penalties(d, now_args_new=d["same_args"] == 0)
+    dlp_kinds = trust.dlp_scan(args) if sinks else []
+    dlp_pen = trust.dlp_penalty(dlp_kinds)
+    if dlp_pen:
+        penalties.append(dlp_pen)
+
+    context = taint.tainted_events(sg)
+    toxic_row = None
+    reasons: list[str] = []
+    decision = ALLOW
+
+    # Apply penalties first so the call that tips the score is itself subject to lockdown.
+    score, lockdown = sess["score"], bool(sess["lockdown"])
+    total = sum(p.points for p in penalties)
+
+    needs_toxic = bool(context) and bool(sinks)
+    if needs_toxic:
+        toxic_rows = stack.named("toxic_combinations").dicts()
+        toxic_row = next((r for r in toxic_rows if r["agent"] == facts["agent"]), None)
+        if toxic_row and toxic_row["toxic"]:
+            decision = DENY
+            reasons.append(
+                "structural: untrusted data is in context, this tool reaches "
+                f"{'/'.join(sorted({s['kind'] for s in sinks}))} sink(s) "
+                f"({', '.join(s['sink'] for s in sinks)}), and the agent holds the toxic "
+                "combination (untrusted ingest + private data/secret + exfil egress)"
+            )
+            total += trust.PENALTY["blocked"]
+            penalties.append(trust.Penalty("blocked", trust.PENALTY["blocked"],
+                                           "tainted call to a sink was blocked"))
+        else:
+            decision = ESCALATE
+            reasons.append(
+                "untrusted data is in context and this tool reaches "
+                f"{', '.join(s['sink'] for s in sinks)}; not toxic, so a human decides"
+            )
+
+    if total:
+        pen = taint.penalize(sg, session_id, total, config.GUARD_LOCKDOWN_THRESHOLD)
+        score, lockdown = pen["score"], bool(pen["lockdown"])
+
+    if lockdown and facts["side_effect"] != "read":
+        decision = DENY
+        reasons.insert(0, f"lockdown: trust score {score} is below "
+                          f"{config.GUARD_LOCKDOWN_THRESHOLD}; only read-only tools may run")
+
+    if decision != DENY and exfil and any(k in trust.SECRET_KINDS for k in dlp_kinds):
+        decision = DENY
+        reasons.append(f"DLP: outbound arguments contain {', '.join(dlp_kinds)} "
+                       f"and {tool!r} reaches an exfil sink")
+
+    if decision == ALLOW and facts["gated"]:
+        decision = ESCALATE
+        reasons.append(f"{tool!r} is gated in the stack config: a human must confirm")
+
+    if decision == ALLOW:
+        reasons.append("no untrusted data in context that this call could carry to a sink"
+                       if sinks else "tool reaches no sink")
+
+    return _finish(sg, session_id, stack_id, tool, args, now, decision, reasons,
+                   tainted_call=tainted_call, context=context, facts=facts,
+                   penalties=[p.to_dict() for p in penalties], dlp=dlp_kinds, score=score,
+                   lockdown=lockdown, seq=seq, ahash=ahash, toxic=toxic_row)
+
+
+def _finish(sg, session_id, stack_id, tool, args, now, decision, reasons, *, tainted_call,
+            context, facts, penalties, dlp, score, lockdown, seq=None, ahash=None,
+            toxic=None) -> Decision:
+    ahash = ahash or trust.args_hash(args)
+    if seq is None:
+        seq = taint.next_seq(sg, session_id)
+    status = {ALLOW: "allowed", DENY: "denied", ESCALATE: "pending"}[decision]
+    taint.record_event(
+        sg, seq=seq, tool=tool, args_hash=ahash, tainted=tainted_call, decision=decision,
+        executed=decision == ALLOW, status=status, reasons=reasons, dlp=dlp, ts=now,
+        derived=bool(context),
+    )
+    return Decision(
+        decision=decision, reasons=reasons, session=session_id, stack=stack_id, tool=tool,
+        seq=seq, status=status, tainted_call=tainted_call, context_tainted=bool(context),
+        score=score, lockdown=lockdown, penalties=penalties, dlp=dlp,
+        provenance={
+            "tool_facts": {k: facts.get(k) for k in
+                           ("side_effect", "agent", "gated", "untrusted_sources", "sinks")},
+            "tainted_events": context,
+            "toxic_combination": toxic,
+            "queries": ["guard_tool_facts", "session_taint", "toxic_combinations",
+                        "session_drift"],
+        },
+    )

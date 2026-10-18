@@ -58,4 +58,26 @@ not listed here, so this catalog cannot drift from the code. Run on the per-stac
 | `choke_points` | How many open paths run through each tool | `UNWIND`, `count(DISTINCT ...)` |
 | `betweenness` | Centrality of each node over the capability edges | `algo.betweenness` |
 
-This list grows as later phases add Guard, defense and precedent queries.
+### Guard queries
+
+`guard_tool_facts` runs on the stack graph. The `session_*` queries run on the per-session graph
+`session:<id>`, which holds `Session` and `Event` nodes linked by `NEXT` and `DERIVED_FROM`.
+
+| Query | What it answers |
+|---|---|
+| `guard_tool_facts` | What a tool reads (untrusted sources), which sinks it still reaches, and whether the agent's `CAN_INVOKE` edge is gated |
+| `session_init` | Create the session (`MERGE`), score starts at 100 |
+| `session_next_seq` | Atomic event counter, safe under concurrent calls |
+| `session_taint` | Is untrusted data in the agent's context? (executed + tainted events) |
+| `session_drift` | Counts behind the trust-score signals: burst, enumeration, new tool |
+| `session_penalize` | Lower the trust score and set sticky lockdown, atomically |
+| `session_record_event` | Write one step as an `Event` node |
+| `session_link_next` | `(prev)-[:NEXT]->(event)` |
+| `session_link_derived` | `(event)-[:DERIVED_FROM]->(tainted event)`, the taint provenance |
+| `session_resolve` | Human approve/deny. Only matches `decision = 'ESCALATE' AND status = 'pending'`, so a DENY can never change |
+| `session_event_status` | Poll the outcome of one event while it waits for a human |
+| `session_pending` | ESCALATE calls awaiting a human |
+| `session_events` | Full step list and trust score for the live panel |
+| `session_edges` | `NEXT` and `DERIVED_FROM` edges for drawing the taint graph |
+
+This list grows as later phases add defense and precedent queries.
