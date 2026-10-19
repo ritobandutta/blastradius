@@ -43,16 +43,23 @@ export function Chip({ tone = "warn", children, title }) {
   );
 }
 
+// Shown only next to text an AI model would have written (Tribunal, red-team rewrites). When the
+// text is canned we say so; when it is live we show nothing, because there is nothing to warn about.
 export function MockChip({ llm }) {
-  if (!llm) return null;
-  return llm.mock_mode ? (
-    <Chip tone="warn" title={llm.reason || llm.llm_error || "deterministic mock output"}>
+  if (!llm || !llm.mock_mode) return null;
+  return (
+    <Chip tone="warn" title={llm.llm_error || llm.reason || "this text is canned, not written by a model"}>
       MOCK MODE
     </Chip>
-  ) : (
-    <Chip tone="pass" title={llm.model}>
-      LIVE LLM · {shortModel(llm.model)}
-    </Chip>
+  );
+}
+
+export function LinkBtn({ variant = "ghost", size = "md", arrow = false, className = "", children, ...rest }) {
+  return (
+    <a className={`btn-square ${variant} ${size} ${className}`} {...rest}>
+      {children}
+      {arrow && <Arrow size={size === "lg" ? 12 : 10} />}
+    </a>
   );
 }
 
@@ -88,9 +95,7 @@ export function CardHead({ title, sub, children }) {
 export function SectionHead({ id, index, eyebrow, title, sub }) {
   return (
     <header className="section-head" id={id}>
-      <div className="eyebrow mono">
-        {index} / {eyebrow}
-      </div>
+      <div className="eyebrow mono">{index ? `${index} / ${eyebrow}` : eyebrow}</div>
       <h2 className="display">{title}</h2>
       {sub && <p className="section-sub">{sub}</p>}
     </header>

@@ -17,7 +17,7 @@ export function RedTeamPanel({ stack }) {
     <div className="panel stack">
       <div className="row">
         <Btn variant="primary" arrow onClick={go} disabled={busy || !stack}>{busy ? "Attacking the sandbox…" : "Run red team"}</Btn>
-        <span className="muted small mono">Simulated tools only. Success = the canary string reached a sink.</span>
+        <span className="muted small mono">Simulated tools only. An attack succeeds if its marker string reaches a sink.</span>
         {res && <MockChip llm={res.llm} />}
       </div>
       <Err error={error} />
@@ -128,7 +128,7 @@ export function DefensePanel({ stack, onPatched, onPaths }) {
 }
 
 // ---------------------------------------------------------------- precedent
-export function PrecedentPanel({ stack, tenant }) {
+export function PrecedentPanel({ stack, tenant, canSeed = true }) {
   const [res, setRes] = useState(null);
   const [rules, setRules] = useState(null);
   const { busy, error, run } = useAction();
@@ -141,8 +141,8 @@ export function PrecedentPanel({ stack, tenant }) {
     <div className="panel stack">
       <div className="row">
         <Btn variant="primary" arrow onClick={go} disabled={busy || !stack}>{busy ? "Scanning…" : "Scan into precedent memory"}</Btn>
-        <Btn variant="ghost" onClick={seed} disabled={busy}>Build seed corpus</Btn>
-        <span className="muted small mono">Seeded stacks are synthetic.</span>
+        {canSeed && <Btn variant="ghost" onClick={seed} disabled={busy}>Rebuild sample history</Btn>}
+        <span className="muted small mono">Earlier stacks in this history are synthetic samples.</span>
       </div>
       <Err error={error} />
       {!res && !busy && <Empty>Scan a stack to see which earlier stacks shared its tool combinations, and which fix held.</Empty>}
@@ -167,7 +167,7 @@ export function PrecedentPanel({ stack, tenant }) {
       )}
       <div className="card">
         <div className="card-head"><div><h3>Learned Guard rules</h3><p className="card-sub">Armed only after a critic replays the exploit and the benign sessions.</p></div></div>
-        {!rules?.length ? <Empty>No rules yet. Build the seed corpus or scan a stack.</Empty> : (
+        {!rules?.length ? <Empty>No rules yet. Scan a stack to learn some.</Empty> : (
           <table><thead><tr><th>Status</th><th>Rule</th><th>Critic</th></tr></thead>
             <tbody>{rules.map((r) => (
               <tr key={r.id}><td><Chip tone={r.status === "armed" ? "pass" : r.status === "rejected" ? "fail" : "warn"}>{r.status}</Chip></td>
